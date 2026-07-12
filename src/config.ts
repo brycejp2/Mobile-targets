@@ -47,6 +47,16 @@ export const CONFIG = {
     comboStep: 0.25, // each combo level adds 25% to the throw's points
   },
 
+  // --- Modes ---
+  modes: {
+    timeAttackSeconds: 60,
+    dailyAttempts: 5,
+    dailyPassingScore: 1500,
+    predictRounds: 6,
+    // Prediction scoring: full points within `perfectDist`, zero past `zeroDist`.
+    predict: { maxPoints: 500, perfectDist: 40, zeroDist: 600 },
+  },
+
   // --- Feel ---
   dartLengthPx: 34,
   // Bullet-time as the dart nears the target.

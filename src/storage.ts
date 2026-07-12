@@ -3,22 +3,34 @@
 
 const KEY = "blindshot.save.v1";
 
-export interface SaveData {
-  highScore: number;
+export interface DailyRecord {
+  played: boolean;
+  passed: boolean;
+  score: number;
 }
 
-const DEFAULTS: SaveData = { highScore: 0 };
+export interface SaveData {
+  highScore: number;
+  dailyStreak: number;
+  lastDailyDate: string; // YYYY-MM-DD of the most recent completed daily
+  daily: Record<string, DailyRecord>;
+}
+
+const DEFAULTS: SaveData = { highScore: 0, dailyStreak: 0, lastDailyDate: "", daily: {} };
 
 export function load(): SaveData {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return { ...DEFAULTS };
-    const parsed = JSON.parse(raw) as Partial<SaveData>;
+    if (!raw) return structuredClone(DEFAULTS);
+    const p = JSON.parse(raw) as Partial<SaveData>;
     return {
-      highScore: Number.isFinite(parsed.highScore) ? (parsed.highScore as number) : 0,
+      highScore: Number.isFinite(p.highScore) ? (p.highScore as number) : 0,
+      dailyStreak: Number.isFinite(p.dailyStreak) ? (p.dailyStreak as number) : 0,
+      lastDailyDate: typeof p.lastDailyDate === "string" ? p.lastDailyDate : "",
+      daily: p.daily && typeof p.daily === "object" ? (p.daily as Record<string, DailyRecord>) : {},
     };
   } catch {
-    return { ...DEFAULTS };
+    return structuredClone(DEFAULTS);
   }
 }
 
@@ -28,4 +40,34 @@ export function save(data: SaveData): void {
   } catch {
     // Storage unavailable; ignore.
   }
+}
+
+// Today's date as a local YYYY-MM-DD string, used as the daily seed + key.
+export function todayKey(d = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function isYesterday(prev: string, today: string): boolean {
+  if (!prev) return false;
+  const p = new Date(prev + "T00:00:00");
+  const t = new Date(today + "T00:00:00");
+  return Math.round((t.getTime() - p.getTime()) / 86400000) === 1;
+}
+
+// Record an official daily result, updating the pass streak. Returns the updated
+// save so callers can read the new streak.
+export function recordDaily(date: string, passed: boolean, score: number): SaveData {
+  const data = load();
+  data.daily[date] = { played: true, passed, score };
+  if (passed) {
+    data.dailyStreak = isYesterday(data.lastDailyDate, date) ? data.dailyStreak + 1 : 1;
+  } else {
+    data.dailyStreak = 0;
+  }
+  data.lastDailyDate = date;
+  save(data);
+  return data;
 }

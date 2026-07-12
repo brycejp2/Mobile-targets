@@ -43,6 +43,8 @@ export interface PortalSpec {
   speedMult: number;
 }
 
+export type LevelMode = "throw" | "predict";
+
 export interface LevelSpec {
   index: number;
   gravity: number;
@@ -50,6 +52,9 @@ export interface LevelSpec {
   target: TargetSpec;
   walls: WallSpec[];
   portals: PortalSpec[];
+  mode?: LevelMode; // defaults to "throw"
+  attempts?: number; // for challenge/daily levels
+  passingScore?: number; // for challenge/daily levels
 }
 
 const BASE_RINGS = CONFIG.target.rings as readonly number[];
@@ -91,4 +96,30 @@ export function generateLevel(index: number, rng: Rng): LevelSpec {
     walls: [],
     portals: [],
   };
+}
+
+// A fixed daily challenge: everyone on the same date plays the same seed. Uses a
+// mid-range difficulty plus wind so scores are comparable and skill-based.
+export function generateDailyLevel(seed: number): LevelSpec {
+  const rng = new Rng(seed);
+  const base = generateLevel(6, rng);
+  return {
+    ...base,
+    index: 0,
+    attempts: CONFIG.modes.dailyAttempts,
+    passingScore: CONFIG.modes.dailyPassingScore,
+  };
+}
+
+// A prediction round: a fixed throw the player must forecast. Returns the level
+// plus the predetermined launch velocity (power/angle are shown, not chosen).
+export function generatePredictLevel(rng: Rng, index: number): { level: LevelSpec; velocity: Vec2 } {
+  const level = generateLevel(index, rng);
+  level.mode = "predict";
+  level.wind = { x: 0, y: 0 }; // keep prediction about the arc, not wind
+  level.target.motion = undefined;
+  const power = rng.range(0.55, 0.9);
+  const angle = rng.range(0.45, 1.05); // ~26°..60°
+  const speed = power * CONFIG.physics.maxSpeed;
+  return { level, velocity: { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed } };
 }

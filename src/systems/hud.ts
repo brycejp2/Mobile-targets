@@ -13,6 +13,7 @@ export interface HudData {
   score: number;
   best: number;
   combo: number;
+  status?: string; // mode-specific line (timer, attempts, etc.)
   message?: string;
 }
 
@@ -50,6 +51,7 @@ export class Hud {
     this.drawXGauge(ctx, d.offset.x);
     this.drawYGauge(ctx, d.offset.y);
     if (d.power >= 0) this.drawPower(ctx, d.power);
+    this.statusLine = d.status;
     this.drawScore(ctx, d.score, d.best, d.combo, d.level);
     this.drawWind(ctx, d.wind);
     if (d.message) this.drawMessage(ctx, d.message);
@@ -178,12 +180,21 @@ export class Hud {
     ctx.font = "600 12px system-ui, sans-serif";
     ctx.fillText(`BEST ${best}  ·  LV ${level}`, pad, pad + 26);
 
+    let y = pad + 44;
     if (combo > 1) {
       ctx.fillStyle = "#ffd166";
       ctx.font = "700 14px system-ui, sans-serif";
-      ctx.fillText(`x${combo} combo`, pad, pad + 44);
+      ctx.fillText(`x${combo} combo`, pad, y);
+      y += 20;
+    }
+    if (this.statusLine) {
+      ctx.fillStyle = "#8fb7ff";
+      ctx.font = "700 13px system-ui, sans-serif";
+      ctx.fillText(this.statusLine, pad, y);
     }
   }
+
+  private statusLine?: string;
 
   // Wind indicator: an arrow (in wind direction) + magnitude near top-center.
   private drawWind(ctx: CanvasRenderingContext2D, wind: Vec2): void {

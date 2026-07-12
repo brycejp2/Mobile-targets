@@ -29,6 +29,15 @@ export class Scoring {
     this.combo = 0;
   }
 
+  // Add points from a non-ring source (e.g. prediction mode) and update best.
+  addPredict(points: number): void {
+    this.score += points;
+    if (this.score > this.best) {
+      this.best = this.score;
+      save({ ...load(), highScore: this.best });
+    }
+  }
+
   record(hit: HitInfo, target: Target): ScoreEvent {
     const isHit = hit.ringScore > 0;
     const isBullseye = hit.ringScore >= target.rings.length;
@@ -53,7 +62,7 @@ export class Scoring {
     if (this.score > this.best) {
       this.best = this.score;
       newBest = true;
-      save({ highScore: this.best });
+      save({ ...load(), highScore: this.best });
     }
 
     return {
