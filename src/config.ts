@@ -41,8 +41,25 @@ export const CONFIG = {
     aimReturnDuration: 0.6,
   },
 
+  // --- Scoring ---
+  scoring: {
+    bullseyeBonus: 250,
+    comboStep: 0.25, // each combo level adds 25% to the throw's points
+  },
+
   // --- Feel ---
   dartLengthPx: 34,
+  // Bullet-time as the dart nears the target.
+  slowmo: {
+    triggerDist: 300, // world units from target center
+    minScale: 0.32, // slowest time scale at closest
+    ramp: 6, // how fast time scale eases back toward its target
+  },
+  shake: {
+    hitMag: 14, // screen px on a hit
+    bullseyeMag: 22,
+    decay: 5, // per second
+  },
   hud: {
     edgePadding: 14,
     gaugeThickness: 8,

@@ -9,6 +9,7 @@ export interface HudData {
   offset: Vec2; // target position relative to launch (world units)
   power: number; // 0..1, or negative when not aiming
   score: number;
+  best: number;
   combo: number;
   message?: string;
 }
@@ -47,7 +48,7 @@ export class Hud {
     this.drawXGauge(ctx, d.offset.x);
     this.drawYGauge(ctx, d.offset.y);
     if (d.power >= 0) this.drawPower(ctx, d.power);
-    this.drawScore(ctx, d.score, d.combo);
+    this.drawScore(ctx, d.score, d.best, d.combo);
     if (d.message) this.drawMessage(ctx, d.message);
   }
 
@@ -156,17 +157,27 @@ export class Hud {
     ctx.fillText(`${Math.round(power * 100)}%`, x, y - 6);
   }
 
-  private drawScore(ctx: CanvasRenderingContext2D, score: number, combo: number): void {
+  private drawScore(
+    ctx: CanvasRenderingContext2D,
+    score: number,
+    best: number,
+    combo: number,
+  ): void {
     const pad = CONFIG.hud.edgePadding;
     ctx.fillStyle = COL_TEXT;
     ctx.font = "700 22px system-ui, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     ctx.fillText(`${score}`, pad, pad);
+
+    ctx.fillStyle = "rgba(234,242,255,0.55)";
+    ctx.font = "600 12px system-ui, sans-serif";
+    ctx.fillText(`BEST ${best}`, pad, pad + 26);
+
     if (combo > 1) {
       ctx.fillStyle = "#ffd166";
       ctx.font = "700 14px system-ui, sans-serif";
-      ctx.fillText(`x${combo} combo`, pad, pad + 26);
+      ctx.fillText(`x${combo} combo`, pad, pad + 44);
     }
   }
 

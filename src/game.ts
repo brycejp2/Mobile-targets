@@ -7,8 +7,9 @@ import { World } from "./entities/world";
 import { Camera } from "./systems/camera";
 import { Hud } from "./systems/hud";
 import { InputController } from "./systems/input";
+import { Particles } from "./systems/particles";
 import { Scoring, ScoreEvent } from "./systems/scoring";
-import { dist, Vec2 } from "./util/math";
+import { clamp, dist, lerp, Vec2 } from "./util/math";
 import { Rng } from "./util/rng";
 
 type State = "AIMING" | "IN_FLIGHT" | "REVEAL" | "RESULT";
@@ -21,9 +22,11 @@ export class Game {
   private hud: Hud;
   private input = new InputController();
   private scoring = new Scoring();
+  private particles = new Particles();
 
   private state: State = "AIMING";
   private stateTime = 0;
+  private timeScale = 1; // bullet-time factor for the simulation
 
   private closestDist = Infinity;
   private closestPos: Vec2 = { ...this.world.launch };
@@ -54,6 +57,8 @@ export class Game {
     this.lastEvent = null;
     this.closestDist = Infinity;
     this.closestPos = { ...this.world.launch };
+    this.timeScale = 1;
+    this.particles.clear();
     this.input.end();
     this.frameAim();
   }
@@ -82,15 +87,37 @@ export class Game {
   private finishThrow(): void {
     const impact = this.impact!;
     const hit = this.world.target.evaluate(impact);
-    this.lastEvent = this.scoring.record(hit, this.world.target);
+    const ev = this.scoring.record(hit, this.world.target);
+    this.lastEvent = ev;
+
+    // Impact feedback: particles + screen shake, bigger for a bullseye.
+    if (ev.hit) {
+      const color = ev.bullseye ? "#ffd166" : "#57d1ff";
+      this.particles.burst(impact, color, ev.bullseye ? 42 : 26, 520);
+      this.camera.addShake(ev.bullseye ? CONFIG.shake.bullseyeMag : CONFIG.shake.hitMag);
+    } else {
+      this.particles.burst(impact, "#6b7690", 12, 260);
+    }
+
     this.state = "REVEAL";
     this.stateTime = 0;
+    this.timeScale = 1;
     const view = this.camera.fitView(
       [this.world.launch, this.world.target.pos, impact, ...this.dart.trail],
       CONFIG.camera.aimZoomPadding,
       this.world.target.outerRadius,
     );
     this.camera.animateTo(view, 0.5);
+  }
+
+  // Bullet-time ramps in as the in-flight dart approaches the target.
+  private desiredTimeScale(): number {
+    if (this.state !== "IN_FLIGHT") return 1;
+    const d = dist(this.dart.pos, this.world.target.pos);
+    const trigger = CONFIG.slowmo.triggerDist;
+    if (d >= trigger) return 1;
+    const t = clamp(d / trigger, 0, 1);
+    return lerp(CONFIG.slowmo.minScale, 1, t);
   }
 
   // --- Input ---
@@ -113,11 +140,18 @@ export class Game {
 
   // --- Update ---
   update(dt: number): void {
-    this.camera.update(dt);
+    this.camera.update(dt); // camera uses real time (shake/framing unaffected by slow-mo)
     this.stateTime += dt;
 
+    // Ease the simulation time scale toward its target (bullet-time near the target).
+    const desired = this.desiredTimeScale();
+    this.timeScale = lerp(this.timeScale, desired, Math.min(1, CONFIG.slowmo.ramp * dt));
+    const simDt = dt * this.timeScale;
+
+    this.particles.update(simDt);
+
     if (this.state === "IN_FLIGHT") {
-      const landed = this.dart.step(dt);
+      const landed = this.dart.step(simDt);
       const target = this.world.target;
       const d = dist(this.dart.pos, target.pos);
       if (d < this.closestDist) {
@@ -149,6 +183,7 @@ export class Game {
     this.drawBackground(ctx);
     this.drawTarget(ctx);
     this.drawDart(ctx);
+    this.particles.render(ctx, this.camera);
     if (this.state === "AIMING" && this.input.active) this.drawAimHelpers(ctx);
 
     let message: string | undefined;
@@ -157,6 +192,7 @@ export class Game {
       offset: this.world.targetOffset(),
       power: this.state === "AIMING" && this.input.active ? this.input.power() : -1,
       score: this.scoring.score,
+      best: this.scoring.best,
       combo: this.scoring.combo,
       message,
     });
@@ -313,10 +349,16 @@ export class Game {
     ctx.font = "700 24px system-ui, sans-serif";
     ctx.fillText(ev.points > 0 ? `+${ev.points}` : "no points", cx, cy + 40);
 
+    if (ev.newBest && ev.points > 0) {
+      ctx.fillStyle = "#ffd166";
+      ctx.font = "800 18px system-ui, sans-serif";
+      ctx.fillText("★ NEW BEST ★", cx, cy + 68);
+    }
+
     if (this.state === "RESULT") {
       ctx.fillStyle = "rgba(234,242,255,0.8)";
       ctx.font = "600 16px system-ui, sans-serif";
-      ctx.fillText("Tap to throw again", cx, cy + 90);
+      ctx.fillText("Tap to throw again", cx, cy + 100);
     }
   }
 }

@@ -19,7 +19,15 @@ export class Camera {
   private t = 1;
   private duration = 1;
 
+  // Screen-space shake, applied as an offset in worldToScreen.
+  private shakeMag = 0;
+  private shakeOffset: Vec2 = { x: 0, y: 0 };
+
   constructor(public viewW: number, public viewH: number) {}
+
+  addShake(mag: number): void {
+    this.shakeMag = Math.max(this.shakeMag, mag);
+  }
 
   resize(w: number, h: number): void {
     this.viewW = w;
@@ -28,8 +36,8 @@ export class Camera {
 
   worldToScreen(p: Vec2): Vec2 {
     return {
-      x: this.viewW / 2 + (p.x - this.center.x) * this.scale,
-      y: this.viewH / 2 - (p.y - this.center.y) * this.scale,
+      x: this.viewW / 2 + (p.x - this.center.x) * this.scale + this.shakeOffset.x,
+      y: this.viewH / 2 - (p.y - this.center.y) * this.scale + this.shakeOffset.y,
     };
   }
 
@@ -94,6 +102,18 @@ export class Camera {
   }
 
   update(dt: number): void {
+    // Shake decays independently of framing transitions.
+    if (this.shakeMag > 0.1) {
+      this.shakeOffset = {
+        x: (Math.random() * 2 - 1) * this.shakeMag,
+        y: (Math.random() * 2 - 1) * this.shakeMag,
+      };
+      this.shakeMag = Math.max(0, this.shakeMag - CONFIG.shake.decay * this.shakeMag * dt);
+    } else {
+      this.shakeMag = 0;
+      this.shakeOffset = { x: 0, y: 0 };
+    }
+
     if (this.t >= 1) return;
     this.t = Math.min(1, this.t + dt / this.duration);
     const e = easeInOut(this.t);
