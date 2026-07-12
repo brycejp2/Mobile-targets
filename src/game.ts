@@ -2,12 +2,15 @@
 // update + render. Phase 1 loop: AIMING -> IN_FLIGHT -> REVEAL -> RESULT.
 
 import { CONFIG } from "./config";
+import { generateLevel, LevelSpec } from "./data/schema";
 import { Dart } from "./entities/dart";
 import { World } from "./entities/world";
 import { Camera } from "./systems/camera";
+import { CollisionState, stepCollisions } from "./systems/collision";
 import { Hud } from "./systems/hud";
 import { InputController } from "./systems/input";
 import { Particles } from "./systems/particles";
+import { integrate } from "./systems/physics";
 import { Scoring, ScoreEvent } from "./systems/scoring";
 import { clamp, dist, lerp, Vec2 } from "./util/math";
 import { Rng } from "./util/rng";
@@ -16,17 +19,20 @@ type State = "AIMING" | "IN_FLIGHT" | "REVEAL" | "RESULT";
 
 export class Game {
   private rng = new Rng();
-  private world = new World(this.rng);
+  private levelIndex = 1;
+  private world = new World(generateLevel(this.levelIndex, this.rng));
   private dart = new Dart(this.world.launch);
   private camera: Camera;
   private hud: Hud;
   private input = new InputController();
   private scoring = new Scoring();
   private particles = new Particles();
+  private collision: CollisionState = { portalCooldown: 0 };
 
   private state: State = "AIMING";
   private stateTime = 0;
   private timeScale = 1; // bullet-time factor for the simulation
+  private targetClock = 0; // drives moving-target motion
 
   private closestDist = Infinity;
   private closestPos: Vec2 = { ...this.world.launch };
@@ -49,7 +55,8 @@ export class Game {
 
   // --- Round lifecycle ---
   private newRound(): void {
-    this.world.spawnTarget(this.rng);
+    this.levelIndex += 1;
+    this.world.load(generateLevel(this.levelIndex, this.rng));
     this.dart = new Dart(this.world.launch);
     this.state = "AIMING";
     this.stateTime = 0;
@@ -58,6 +65,27 @@ export class Game {
     this.closestDist = Infinity;
     this.closestPos = { ...this.world.launch };
     this.timeScale = 1;
+    this.targetClock = 0;
+    this.collision.portalCooldown = 0;
+    this.particles.clear();
+    this.input.end();
+    this.frameAim();
+  }
+
+  // Load an explicit level (used by demo levels and automated tests).
+  loadLevel(spec: LevelSpec): void {
+    this.levelIndex = spec.index;
+    this.world.load(spec);
+    this.dart = new Dart(this.world.launch);
+    this.state = "AIMING";
+    this.stateTime = 0;
+    this.impact = null;
+    this.lastEvent = null;
+    this.closestDist = Infinity;
+    this.closestPos = { ...this.world.launch };
+    this.timeScale = 1;
+    this.targetClock = 0;
+    this.collision.portalCooldown = 0;
     this.particles.clear();
     this.input.end();
     this.frameAim();
@@ -69,12 +97,17 @@ export class Game {
   }
 
   private launchDart(): void {
-    this.dart.launch(this.input.launchVelocity());
+    this.beginFlight(this.input.launchVelocity());
+    this.input.end();
+  }
+
+  private beginFlight(velocity: Vec2): void {
+    this.dart.launch(velocity);
     this.state = "IN_FLIGHT";
     this.stateTime = 0;
     this.closestDist = Infinity;
     this.closestPos = { ...this.world.launch };
-    this.input.end();
+    this.collision.portalCooldown = 0;
     // Zoom out to reveal the whole throw as the dart travels.
     const view = this.camera.fitView(
       [this.world.launch, this.world.target.pos],
@@ -82,6 +115,11 @@ export class Game {
       this.world.target.outerRadius,
     );
     this.camera.animateTo(view, CONFIG.camera.revealDuration);
+  }
+
+  // Throw with an explicit world velocity (automated tests / demo levels).
+  debugThrow(velocity: Vec2): void {
+    if (this.state === "AIMING") this.beginFlight(velocity);
   }
 
   private finishThrow(): void {
@@ -150,8 +188,21 @@ export class Game {
 
     this.particles.update(simDt);
 
+    // Advance moving-target motion during aiming and flight (frozen afterward so
+    // the stuck dart stays aligned with the target during the reveal).
+    if (this.state === "AIMING" || this.state === "IN_FLIGHT") {
+      this.targetClock += simDt;
+      this.world.update(this.targetClock);
+    }
+
     if (this.state === "IN_FLIGHT") {
-      const landed = this.dart.step(simDt);
+      const level = this.world.level;
+      const env = { gravity: level.gravity, wind: level.wind };
+      const prev = { ...this.dart.pos };
+      integrate(this.dart, simDt, env);
+      stepCollisions(this.dart, prev, level, this.collision, simDt);
+      const landed = this.dart.afterMove(simDt);
+
       const target = this.world.target;
       const d = dist(this.dart.pos, target.pos);
       if (d < this.closestDist) {
@@ -160,7 +211,9 @@ export class Game {
       }
       // Passed the target horizontally without hitting -> resolve as a miss at
       // the closest approach, rather than waiting for the long fall to ground.
-      const passedTarget = this.dart.pos.x >= target.pos.x;
+      // Skip this early-out when walls/portals could still redirect the dart.
+      const canEarlyOut = level.walls.length === 0 && level.portals.length === 0;
+      const passedTarget = canEarlyOut && this.dart.pos.x >= target.pos.x && this.dart.vel.x >= 0;
       if (d <= target.outerRadius) {
         // Stick the dart in the target.
         this.dart.inFlight = false;
@@ -181,6 +234,8 @@ export class Game {
   // --- Render ---
   render(ctx: CanvasRenderingContext2D, _alpha: number): void {
     this.drawBackground(ctx);
+    this.drawWalls(ctx);
+    this.drawPortals(ctx);
     this.drawTarget(ctx);
     this.drawDart(ctx);
     this.particles.render(ctx, this.camera);
@@ -190,6 +245,8 @@ export class Game {
     if (this.state === "AIMING") message = "Drag anywhere to aim · release to throw";
     this.hud.render(ctx, {
       offset: this.world.targetOffset(),
+      wind: this.world.level.wind,
+      level: this.levelIndex,
       power: this.state === "AIMING" && this.input.active ? this.input.power() : -1,
       score: this.scoring.score,
       best: this.scoring.best,
@@ -223,6 +280,43 @@ export class Game {
     ctx.arc(c.x, c.y, Math.max(2, 8 * this.camera.scale), 0, Math.PI * 2);
     ctx.fillStyle = "#0b1020";
     ctx.fill();
+  }
+
+  private drawWalls(ctx: CanvasRenderingContext2D): void {
+    for (const w of this.world.level.walls) {
+      const a = this.camera.worldToScreen(w.a);
+      const b = this.camera.worldToScreen(w.b);
+      // Livelier (higher restitution) walls glow warmer.
+      const warm = Math.round(120 + w.restitution * 120);
+      ctx.strokeStyle = `rgb(${warm}, ${180 - w.restitution * 60}, 120)`;
+      ctx.lineWidth = Math.max(3, 10 * this.camera.scale);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+    ctx.lineCap = "butt";
+  }
+
+  private drawPortals(ctx: CanvasRenderingContext2D): void {
+    const drawGate = (pos: Vec2, r: number, color: string) => {
+      const s = this.camera.worldToScreen(pos);
+      const rad = r * this.camera.scale;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(2, 4 * this.camera.scale);
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, rad, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = color.replace(")", ", 0.15)").replace("rgb", "rgba");
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, rad, 0, Math.PI * 2);
+      ctx.fill();
+    };
+    for (const p of this.world.level.portals) {
+      drawGate(p.a.pos, p.radius, "rgb(120, 90, 255)");
+      drawGate(p.b.pos, p.radius, "rgb(255, 140, 60)");
+    }
   }
 
   private drawDart(ctx: CanvasRenderingContext2D): void {

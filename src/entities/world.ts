@@ -1,31 +1,31 @@
-// The world holds fixed spatial anchors (launch point) and is responsible for
-// placing the offscreen target. Coordinate convention: +x right, +y up, origin
-// at the launch point.
+// The world holds the launch point and the active LevelSpec (target, walls,
+// portals, wind, gravity). Coordinate convention: +x right, +y up, origin at the
+// launch point.
 
 import { CONFIG } from "../config";
-import { Rng } from "../util/rng";
+import { LevelSpec } from "../data/schema";
 import { Vec2 } from "../util/math";
 import { Target } from "./target";
 
 export class World {
   readonly launch: Vec2 = { ...CONFIG.launch };
-  target: Target;
+  level!: LevelSpec;
+  target!: Target;
 
-  constructor(rng: Rng) {
-    this.target = this.spawnTarget(rng);
+  constructor(level: LevelSpec) {
+    this.load(level);
   }
 
-  spawnTarget(rng: Rng): Target {
-    const t = CONFIG.target;
-    const pos: Vec2 = {
-      x: this.launch.x + rng.range(t.minX, t.maxX),
-      y: this.launch.y + rng.range(t.minY, t.maxY),
-    };
-    this.target = new Target(pos);
-    return this.target;
+  load(level: LevelSpec): void {
+    this.level = level;
+    this.target = new Target(level.target.pos, level.target.rings, level.target.motion);
   }
 
-  // Signed offset from the launch point to the target, used by the HUD gauges.
+  update(time: number): void {
+    this.target.update(time);
+  }
+
+  // Signed offset from the launch point to the (current) target, for HUD gauges.
   targetOffset(): Vec2 {
     return {
       x: this.target.pos.x - this.launch.x,

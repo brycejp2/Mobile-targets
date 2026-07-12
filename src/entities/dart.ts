@@ -1,11 +1,11 @@
-// The thrown dart. Holds kinematic state, a short motion trail for rendering,
-// and delegates its per-step motion to the physics integrator.
+// The thrown dart. Holds kinematic state and a short motion trail. Motion is
+// driven externally (game.ts orchestrates integrate + collision each step) so
+// bounce surfaces and portals can be resolved between position updates.
 
 import { CONFIG } from "../config";
-import { integrate } from "../systems/physics";
 import { len, Vec2 } from "../util/math";
 
-const MAX_TRAIL = 40;
+const MAX_TRAIL = 60;
 
 export class Dart {
   pos: Vec2;
@@ -28,24 +28,17 @@ export class Dart {
     this.trail = [{ ...this.pos }];
   }
 
-  // Returns true on the step the dart lands (so the caller can transition state).
-  step(dt: number): boolean {
-    if (!this.inFlight) return false;
-
-    integrate(this, dt);
+  // Called after integrate + collision have updated pos/vel for this step.
+  // Records the trail and reports whether the flight should end (fell to ground
+  // or exceeded the time cap). Mutating inFlight/landed is the caller's job.
+  afterMove(dt: number): boolean {
     this.flightTime += dt;
-
     this.trail.push({ x: this.pos.x, y: this.pos.y });
     if (this.trail.length > MAX_TRAIL) this.trail.shift();
 
     const belowGround = this.pos.y <= CONFIG.physics.groundY;
     const tooLong = this.flightTime >= CONFIG.physics.maxFlightTime;
-    if (belowGround || tooLong) {
-      this.inFlight = false;
-      this.landed = true;
-      return true;
-    }
-    return false;
+    return belowGround || tooLong;
   }
 
   // Heading in radians for rendering the dart oriented along its velocity.

@@ -14,6 +14,15 @@ export const scale = (a: Vec2, s: number): Vec2 => ({ x: a.x * s, y: a.y * s });
 
 export const len = (a: Vec2): number => Math.hypot(a.x, a.y);
 
+export const dot = (a: Vec2, b: Vec2): number => a.x * b.x + a.y * b.y;
+
+// Rotate a vector by `ang` radians (CCW in world space, +y up).
+export function rotate(a: Vec2, ang: number): Vec2 {
+  const c = Math.cos(ang);
+  const s = Math.sin(ang);
+  return { x: a.x * c - a.y * s, y: a.x * s + a.y * c };
+}
+
 export function normalize(a: Vec2): Vec2 {
   const l = len(a);
   return l === 0 ? { x: 0, y: 0 } : { x: a.x / l, y: a.y / l };
