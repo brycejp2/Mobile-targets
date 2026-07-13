@@ -3,6 +3,8 @@
 
 import { Game } from "./game";
 import { CONFIG } from "./config";
+import { exportCode, importCode } from "./data/sharecode";
+import { validateLevel } from "./data/schema";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -26,7 +28,13 @@ const game = new Game(viewW, viewH);
 
 // Dev-only hook so automated tests can read world state and tunables.
 if (import.meta.env.DEV) {
-  (window as unknown as { __debug: unknown }).__debug = { game, CONFIG };
+  (window as unknown as { __debug: unknown }).__debug = {
+    game,
+    CONFIG,
+    exportCode,
+    importCode,
+    validateLevel,
+  };
 }
 
 window.addEventListener("resize", resize);

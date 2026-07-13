@@ -1,7 +1,10 @@
 // Thin localStorage wrapper for persistent progress. Kept tiny and defensive so
 // a corrupt or unavailable store never crashes the game (private browsing, etc).
 
+import { LevelSpec, validateLevel } from "./data/schema";
+
 const KEY = "blindshot.save.v1";
+const MY_LEVELS_KEY = "blindshot.mylevels.v1";
 
 export interface DailyRecord {
   played: boolean;
@@ -55,6 +58,35 @@ function isYesterday(prev: string, today: string): boolean {
   const p = new Date(prev + "T00:00:00");
   const t = new Date(today + "T00:00:00");
   return Math.round((t.getTime() - p.getTime()) / 86400000) === 1;
+}
+
+// --- Workshop "My Levels" -----------------------------------------------------
+
+export function loadMyLevels(): LevelSpec[] {
+  try {
+    const raw = localStorage.getItem(MY_LEVELS_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr.map(validateLevel).filter((l): l is LevelSpec => l !== null);
+  } catch {
+    return [];
+  }
+}
+
+export function saveMyLevels(levels: LevelSpec[]): void {
+  try {
+    localStorage.setItem(MY_LEVELS_KEY, JSON.stringify(levels));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export function addMyLevel(level: LevelSpec): LevelSpec[] {
+  const levels = loadMyLevels();
+  levels.push(level);
+  saveMyLevels(levels);
+  return levels;
 }
 
 // Record an official daily result, updating the pass streak. Returns the updated

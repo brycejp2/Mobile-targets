@@ -20,13 +20,23 @@ import { InputController } from "./systems/input";
 import { Particles } from "./systems/particles";
 import { integrate } from "./systems/physics";
 import { Scoring } from "./systems/scoring";
+import { Content, loadContent } from "./systems/content";
 import { GameOverScreen, hitTest, Menu, MenuId } from "./ui/screens";
+import { Workshop } from "./ui/workshop";
 import { recordDaily, load as loadSave, todayKey } from "./storage";
 import { clamp, dist, lerp, Vec2 } from "./util/math";
 import { Rng, seedFromString } from "./util/rng";
 
-type State = "MENU" | "AIMING" | "PREDICT" | "IN_FLIGHT" | "REVEAL" | "RESULT" | "GAME_OVER";
-type Mode = MenuId; // "endless" | "timeattack" | "daily" | "predict"
+type State =
+  | "MENU"
+  | "WORKSHOP"
+  | "AIMING"
+  | "PREDICT"
+  | "IN_FLIGHT"
+  | "REVEAL"
+  | "RESULT"
+  | "GAME_OVER";
+type Mode = "endless" | "timeattack" | "daily" | "predict";
 
 interface RoundResult {
   title: string;
@@ -46,6 +56,11 @@ export class Game {
   private hud: Hud;
   private menu: Menu;
   private gameOver: GameOverScreen;
+  private workshop: Workshop | null = null;
+  private content: Content | null = null;
+  private resumeWorkshop = false;
+  private dailyLevel: LevelSpec | null = null;
+  private backBtn = { x: 0, y: 0, w: 0, h: 0 };
   private input = new InputController();
   private scoring = new Scoring();
   private particles = new Particles();
@@ -81,6 +96,8 @@ export class Game {
     this.hud = new Hud(viewW, viewH);
     this.menu = new Menu(viewW, viewH);
     this.gameOver = new GameOverScreen(viewW, viewH);
+    // Fetch runtime-published content (levels + daily) in the background.
+    void loadContent().then((c) => (this.content = c));
   }
 
   onResize(w: number, h: number): void {
@@ -90,8 +107,36 @@ export class Game {
     this.hud.resize(w, h);
     this.menu.resize(w, h);
     this.gameOver.resize(w, h);
+    this.workshop?.resize(w, h);
+    this.backBtn = { x: w - 46, y: 12, w: 34, h: 34 };
     if (this.state === "AIMING") this.frameAim();
     else if (this.state === "PREDICT") this.framePredict();
+  }
+
+  // Route a menu selection (may open the workshop rather than a play mode).
+  private startMenuChoice(id: MenuId): void {
+    if (id === "workshop") {
+      this.openWorkshop();
+    } else {
+      this.startMode(id);
+    }
+  }
+
+  private openWorkshop(): void {
+    if (!this.workshop) {
+      this.workshop = new Workshop(
+        this.viewW,
+        this.viewH,
+        (spec) => {
+          this.resumeWorkshop = true;
+          this.loadLevel(spec);
+        },
+        () => {
+          this.state = "MENU";
+        },
+      );
+    }
+    this.state = "WORKSHOP";
   }
 
   // ---------------------------------------------------------------- Modes ----
@@ -100,13 +145,16 @@ export class Game {
     this.scoring.reset();
     this.levelIndex = 0;
     this.timeLeft = CONFIG.modes.timeAttackSeconds;
+    this.resumeWorkshop = false;
     if (mode === "daily") {
       this.dailyDate = todayKey();
       const save = loadSave();
       this.dailyOfficial = !save.daily[this.dailyDate]?.played;
-      const lvl = generateDailyLevel(seedFromString(this.dailyDate));
-      this.attemptsLeft = lvl.attempts ?? CONFIG.modes.dailyAttempts;
-      this.passingScore = lvl.passingScore ?? CONFIG.modes.dailyPassingScore;
+      // Prefer a remotely-published daily for today; else generate one.
+      this.dailyLevel =
+        this.content?.daily[this.dailyDate] ?? generateDailyLevel(seedFromString(this.dailyDate));
+      this.attemptsLeft = this.dailyLevel.attempts ?? CONFIG.modes.dailyAttempts;
+      this.passingScore = this.dailyLevel.passingScore ?? CONFIG.modes.dailyPassingScore;
       this.startThrowRound();
     } else if (mode === "predict") {
       this.predictRoundsLeft = CONFIG.modes.predictRounds;
@@ -119,11 +167,8 @@ export class Game {
   // A throw round for endless / timeattack / daily.
   private startThrowRound(): void {
     if (this.mode === "daily") {
-      const attemptNo = (this.attemptsLeft ? CONFIG.modes.dailyAttempts - this.attemptsLeft : 0);
-      const seed = seedFromString(`${this.dailyDate}#${attemptNo}`);
-      const lvl = generateLevel(6, new Rng(seed));
-      lvl.index = attemptNo + 1;
-      this.world.load(lvl);
+      // Every attempt plays the same daily level (fixed per date).
+      this.world.load(structuredClone(this.dailyLevel!));
     } else {
       this.levelIndex += 1;
       this.world.load(generateLevel(this.levelIndex, this.rng));
@@ -268,8 +313,25 @@ export class Game {
     this.camera.animateTo(view, 0.5);
   }
 
+  private hitBack(x: number, y: number): boolean {
+    const b = this.backBtn;
+    return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+  }
+
+  // Leave the current play session — back to the Workshop if we were testing a
+  // draft, otherwise to the main menu.
+  private exitToBack(): void {
+    if (this.resumeWorkshop && this.workshop) {
+      this.resumeWorkshop = false;
+      this.state = "WORKSHOP";
+    } else {
+      this.state = "MENU";
+    }
+  }
+
   // Advance out of RESULT: next round, or game over per mode.
   private advanceRound(): void {
+    if (this.resumeWorkshop) return this.exitToBack(); // testing a workshop draft
     if (this.mode === "predict") {
       if (this.predictRoundsLeft <= 0) this.enterGameOver();
       else this.startPredictRound();
@@ -323,13 +385,18 @@ export class Game {
     switch (this.state) {
       case "MENU": {
         const id = hitTest(this.menu.buttons, x, y);
-        if (id) this.startMode(id);
+        if (id) this.startMenuChoice(id);
         break;
       }
+      case "WORKSHOP":
+        this.workshop?.onPointerDown(x, y);
+        break;
       case "AIMING":
+        if (this.hitBack(x, y)) return this.exitToBack();
         this.input.begin(x, y);
         break;
       case "PREDICT":
+        if (this.hitBack(x, y)) return this.exitToBack();
         if (
           this.predictGuess &&
           x >= this.predictLock.x &&
@@ -355,11 +422,14 @@ export class Game {
   }
 
   onPointerMove(x: number, y: number): void {
-    if (this.state === "AIMING" && this.input.active) this.input.move(x, y);
+    if (this.state === "WORKSHOP") this.workshop?.onPointerMove(x, y);
+    else if (this.state === "AIMING" && this.input.active) this.input.move(x, y);
   }
 
   onPointerUp(x: number, y: number): void {
-    if (this.state === "AIMING" && this.input.active) {
+    if (this.state === "WORKSHOP") {
+      this.workshop?.onPointerUp();
+    } else if (this.state === "AIMING" && this.input.active) {
       this.input.move(x, y);
       if (this.input.power() >= 0.05) this.launchDart();
       else this.input.end();
@@ -368,6 +438,10 @@ export class Game {
 
   // ---------------------------------------------------------------- Update ---
   update(dt: number): void {
+    if (this.state === "WORKSHOP") {
+      this.workshop?.update(dt);
+      return;
+    }
     this.camera.update(dt);
     this.stateTime += dt;
 
@@ -432,6 +506,10 @@ export class Game {
       this.menu.render(ctx, this.scoring.best, loadSave().dailyStreak);
       return;
     }
+    if (this.state === "WORKSHOP") {
+      this.workshop?.render(ctx);
+      return;
+    }
 
     this.drawBackground(ctx);
     this.drawWalls(ctx);
@@ -455,10 +533,27 @@ export class Game {
       message: this.state === "AIMING" ? "Drag anywhere to aim · release to throw" : undefined,
     });
 
+    if (this.state === "AIMING" || this.state === "PREDICT") this.drawBackButton(ctx);
     if (this.state === "RESULT" || this.state === "REVEAL") this.drawResult(ctx);
     if (this.state === "GAME_OVER") {
       this.gameOver.render(ctx, this.gameOverTitle, this.gameOverLines, this.gameOverColor);
     }
+  }
+
+  private drawBackButton(ctx: CanvasRenderingContext2D): void {
+    const b = this.backBtn;
+    ctx.beginPath();
+    ctx.roundRect(b.x, b.y, b.w, b.h, 8);
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.3)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = "#eaf2ff";
+    ctx.font = "700 18px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("‹", b.x + b.w / 2, b.y + b.h / 2 - 1);
   }
 
   private statusLine(): string | undefined {

@@ -57,13 +57,14 @@ function drawButton(ctx: CanvasRenderingContext2D, b: Button, accent: string): v
   }
 }
 
-export type MenuId = "endless" | "timeattack" | "daily" | "predict";
+export type MenuId = "endless" | "timeattack" | "daily" | "predict" | "workshop";
 
 const ACCENTS: Record<MenuId, string> = {
   endless: "#57d1ff",
   timeattack: "#3ddc84",
   daily: "#ffd166",
   predict: "#c08bff",
+  workshop: "#ff8c3c",
 };
 
 export class Menu {
@@ -85,10 +86,11 @@ export class Menu {
       { id: "timeattack", label: "Time Attack", sub: "Most points in 60 seconds" },
       { id: "daily", label: "Daily Challenge", sub: "Limited tries · beat the passing score" },
       { id: "predict", label: "Prediction", sub: "Guess where the dart lands" },
+      { id: "workshop", label: "Workshop", sub: "Build & share your own levels" },
     ];
     const w = Math.min(320, this.viewW - 48);
-    const h = 66;
-    const gap = 14;
+    const h = 60;
+    const gap = 12;
     const totalH = defs.length * h + (defs.length - 1) * gap;
     const x = (this.viewW - w) / 2;
     let y = this.viewH * 0.5 - totalH / 2 + 40;

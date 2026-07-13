@@ -4,6 +4,11 @@
 // screen for rendering.
 
 export const CONFIG = {
+  // Base URL for runtime-loaded content (levels.json, daily.json). Defaults to
+  // the app's own /content/ dir, but can point at any static host (CDN, Pages,
+  // gist) so new levels/dailies go live WITHOUT rebuilding or redeploying.
+  contentUrl: "content/",
+
   // --- World / launch ---
   // Launch point is anchored near the bottom-left of the world origin region.
   launch: { x: 0, y: 0 },

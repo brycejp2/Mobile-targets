@@ -1,0 +1,29 @@
+[
+  {
+    "index": 101,
+    "gravity": 900,
+    "wind": { "x": 200, "y": 0 },
+    "target": { "pos": { "x": 2200, "y": 800 }, "rings": [120, 88, 56, 28] },
+    "walls": [
+      { "a": { "x": 1200, "y": 1300 }, "b": { "x": 1200, "y": 300 }, "restitution": 0.85, "friction": 0.05 }
+    ],
+    "portals": [],
+    "mode": "throw"
+  },
+  {
+    "index": 102,
+    "gravity": 900,
+    "wind": { "x": 0, "y": 0 },
+    "target": { "pos": { "x": 2400, "y": 1400 }, "rings": [110, 80, 50, 26] },
+    "walls": [],
+    "portals": [
+      {
+        "a": { "pos": { "x": 900, "y": 600 }, "angle": 0 },
+        "b": { "pos": { "x": 2000, "y": 1300 }, "angle": 0 },
+        "radius": 85,
+        "speedMult": 1.1
+      }
+    ],
+    "mode": "throw"
+  }
+]
