@@ -714,19 +714,31 @@ export class Game {
     ctx.fill();
   }
 
+  // A labelled crosshair at the player's predicted landing spot.
+  private drawGuessMarker(ctx: CanvasRenderingContext2D, label: boolean): void {
+    if (!this.predictGuess) return;
+    const g = this.camera.worldToScreen(this.predictGuess);
+    ctx.strokeStyle = "#c08bff";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(g.x, g.y, 13, 0, Math.PI * 2);
+    ctx.moveTo(g.x - 18, g.y);
+    ctx.lineTo(g.x + 18, g.y);
+    ctx.moveTo(g.x, g.y - 18);
+    ctx.lineTo(g.x, g.y + 18);
+    ctx.stroke();
+    if (label) {
+      ctx.fillStyle = "#c08bff";
+      ctx.font = "700 12px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillText("your guess", g.x, g.y - 22);
+    }
+  }
+
   // Guess marker (predict) and actual-landing marker during the reveal.
   private drawMarkers(ctx: CanvasRenderingContext2D): void {
-    if (this.mode === "predict" && this.predictGuess) {
-      const g = this.camera.worldToScreen(this.predictGuess);
-      ctx.strokeStyle = "#c08bff";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(g.x - 10, g.y);
-      ctx.lineTo(g.x + 10, g.y);
-      ctx.moveTo(g.x, g.y - 10);
-      ctx.lineTo(g.x, g.y + 10);
-      ctx.stroke();
-    }
+    if (this.mode === "predict") this.drawGuessMarker(ctx, false);
     if (this.impact) {
       const p = this.camera.worldToScreen(this.impact);
       ctx.fillStyle = "#eaf2ff";
@@ -828,6 +840,9 @@ export class Game {
   }
 
   private drawPredict(ctx: CanvasRenderingContext2D): void {
+    // Show the player's current guess as they place/adjust it.
+    this.drawGuessMarker(ctx, true);
+
     // Show the fixed power/angle the player must forecast.
     const speed = Math.hypot(this.predictVel.x, this.predictVel.y);
     const power = Math.round((speed / CONFIG.physics.maxSpeed) * 100);
