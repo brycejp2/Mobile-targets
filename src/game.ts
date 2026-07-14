@@ -61,6 +61,8 @@ export class Game {
   private resumeWorkshop = false;
   private dailyLevel: LevelSpec | null = null;
   private backBtn = { x: 0, y: 0, w: 0, h: 0 };
+  private zoomInBtn = { x: 0, y: 0, w: 0, h: 0 };
+  private zoomOutBtn = { x: 0, y: 0, w: 0, h: 0 };
   private input = new InputController();
   private scoring = new Scoring();
   private particles = new Particles();
@@ -109,6 +111,8 @@ export class Game {
     this.gameOver.resize(w, h);
     this.workshop?.resize(w, h);
     this.backBtn = { x: w - 46, y: 12, w: 34, h: 34 };
+    this.zoomInBtn = { x: 12, y: h / 2 - 46, w: 38, h: 38 };
+    this.zoomOutBtn = { x: 12, y: h / 2 + 2, w: 38, h: 38 };
     if (this.state === "AIMING") this.frameAim();
     else if (this.state === "PREDICT") this.framePredict();
   }
@@ -174,7 +178,7 @@ export class Game {
       this.world.load(generateLevel(this.levelIndex, this.rng));
     }
     this.beginRoundCommon("AIMING");
-    this.frameAim();
+    this.introAim();
   }
 
   private startPredictRound(): void {
@@ -206,6 +210,27 @@ export class Game {
     this.camera.setImmediate(this.camera.aimView(this.world.launch));
   }
 
+  // World points that bound the whole level (for framing).
+  private levelPoints(): Vec2[] {
+    const pts: Vec2[] = [this.world.launch, this.world.target.pos];
+    for (const w of this.world.level.walls) pts.push(w.a, w.b);
+    for (const p of this.world.level.portals) pts.push(p.a.pos, p.b.pos);
+    return pts;
+  }
+
+  // Start a round showing the whole level, then zoom in to the dart's start so
+  // the player gets a read on the layout before aiming.
+  private introAim(): void {
+    if (this.viewW <= 0) return;
+    const wide = this.camera.fitView(
+      this.levelPoints(),
+      CONFIG.camera.aimZoomPadding,
+      this.world.target.outerRadius,
+    );
+    this.camera.setImmediate(wide);
+    this.camera.animateTo(this.camera.aimView(this.world.launch), CONFIG.camera.introDuration);
+  }
+
   private framePredict(): void {
     if (this.viewW <= 0) return;
     // Prediction isn't blind: show launch + target so the player can reason.
@@ -223,7 +248,7 @@ export class Game {
     this.levelIndex = spec.index;
     this.world.load(spec);
     this.beginRoundCommon("AIMING");
-    this.frameAim();
+    this.introAim();
   }
 
   // --------------------------------------------------------------- Throwing --
@@ -318,6 +343,41 @@ export class Game {
     return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
   }
 
+  private inRect(b: { x: number; y: number; w: number; h: number }, x: number, y: number): boolean {
+    return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+  }
+
+  // Handle a tap on the zoom +/- buttons; returns true if it hit one.
+  private hitZoomButtons(x: number, y: number): boolean {
+    if (this.inRect(this.zoomInBtn, x, y)) {
+      this.zoomAt(CONFIG.camera.zoomStep, this.viewW / 2, this.viewH / 2);
+      return true;
+    }
+    if (this.inRect(this.zoomOutBtn, x, y)) {
+      this.zoomAt(1 / CONFIG.camera.zoomStep, this.viewW / 2, this.viewH / 2);
+      return true;
+    }
+    return false;
+  }
+
+  // --- Camera zoom/pan (buttons, pinch, wheel) — routed to the active view. ---
+  zoomAt(factor: number, x: number, y: number): void {
+    if (this.state === "WORKSHOP") this.workshop?.zoomAt(factor, x, y);
+    else if (this.state === "AIMING" || this.state === "PREDICT") {
+      this.camera.zoomAt(factor, { x, y });
+    }
+  }
+
+  panBy(dx: number, dy: number): void {
+    if (this.state === "WORKSHOP") this.workshop?.panBy(dx, dy);
+    else if (this.state === "AIMING" || this.state === "PREDICT") this.camera.panScreen(dx, dy);
+  }
+
+  // A second finger touched down: cancel any in-progress aim drag for pinch.
+  onPinchStart(): void {
+    this.input.end();
+  }
+
   // Leave the current play session — back to the Workshop if we were testing a
   // draft, otherwise to the main menu.
   private exitToBack(): void {
@@ -393,10 +453,12 @@ export class Game {
         break;
       case "AIMING":
         if (this.hitBack(x, y)) return this.exitToBack();
+        if (this.hitZoomButtons(x, y)) return;
         this.input.begin(x, y);
         break;
       case "PREDICT":
         if (this.hitBack(x, y)) return this.exitToBack();
+        if (this.hitZoomButtons(x, y)) return;
         if (
           this.predictGuess &&
           x >= this.predictLock.x &&
@@ -533,11 +595,33 @@ export class Game {
       message: this.state === "AIMING" ? "Drag anywhere to aim · release to throw" : undefined,
     });
 
-    if (this.state === "AIMING" || this.state === "PREDICT") this.drawBackButton(ctx);
+    if (this.state === "AIMING" || this.state === "PREDICT") {
+      this.drawBackButton(ctx);
+      this.drawZoomButtons(ctx);
+    }
     if (this.state === "RESULT" || this.state === "REVEAL") this.drawResult(ctx);
     if (this.state === "GAME_OVER") {
       this.gameOver.render(ctx, this.gameOverTitle, this.gameOverLines, this.gameOverColor);
     }
+  }
+
+  private drawZoomButtons(ctx: CanvasRenderingContext2D): void {
+    const draw = (b: { x: number; y: number; w: number; h: number }, sym: string) => {
+      ctx.beginPath();
+      ctx.roundRect(b.x, b.y, b.w, b.h, 9);
+      ctx.fillStyle = "rgba(255,255,255,0.08)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.3)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = "#eaf2ff";
+      ctx.font = "700 22px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(sym, b.x + b.w / 2, b.y + b.h / 2 - 1);
+    };
+    draw(this.zoomInBtn, "+");
+    draw(this.zoomOutBtn, "−");
   }
 
   private drawBackButton(ctx: CanvasRenderingContext2D): void {

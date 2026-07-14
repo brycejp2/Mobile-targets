@@ -40,27 +40,85 @@ if (import.meta.env.DEV) {
 window.addEventListener("resize", resize);
 resize();
 
-// --- Pointer input (covers mouse + touch) ---
+// --- Pointer input (covers mouse + touch, plus two-finger pinch-zoom) ---
 function pointerPos(e: PointerEvent): { x: number; y: number } {
   const rect = canvas.getBoundingClientRect();
   return { x: e.clientX - rect.left, y: e.clientY - rect.top };
 }
 
+const pointers = new Map<number, { x: number; y: number }>();
+let dragId: number | null = null;
+let pinching = false;
+let pinchDist = 0;
+let pinchMid = { x: 0, y: 0 };
+
+function pinchMetrics(): { dist: number; mid: { x: number; y: number } } {
+  const pts = [...pointers.values()];
+  const dx = pts[0].x - pts[1].x;
+  const dy = pts[0].y - pts[1].y;
+  return {
+    dist: Math.hypot(dx, dy),
+    mid: { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 },
+  };
+}
+
 canvas.addEventListener("pointerdown", (e) => {
   canvas.setPointerCapture(e.pointerId);
   const p = pointerPos(e);
-  game.onPointerDown(p.x, p.y);
+  pointers.set(e.pointerId, p);
+  if (pointers.size === 1) {
+    dragId = e.pointerId;
+    game.onPointerDown(p.x, p.y);
+  } else if (pointers.size === 2) {
+    // Second finger: cancel any aim drag and start a pinch gesture.
+    pinching = true;
+    dragId = null;
+    game.onPinchStart();
+    const m = pinchMetrics();
+    pinchDist = m.dist;
+    pinchMid = m.mid;
+  }
 });
+
 canvas.addEventListener("pointermove", (e) => {
   const p = pointerPos(e);
-  game.onPointerMove(p.x, p.y);
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, p);
+  if (pinching && pointers.size >= 2) {
+    const m = pinchMetrics();
+    if (pinchDist > 0) game.zoomAt(m.dist / pinchDist, m.mid.x, m.mid.y);
+    game.panBy(m.mid.x - pinchMid.x, m.mid.y - pinchMid.y);
+    pinchDist = m.dist;
+    pinchMid = m.mid;
+  } else if (e.pointerId === dragId) {
+    game.onPointerMove(p.x, p.y);
+  }
 });
+
 const endPointer = (e: PointerEvent) => {
   const p = pointerPos(e);
-  game.onPointerUp(p.x, p.y);
+  const wasDrag = e.pointerId === dragId && !pinching;
+  pointers.delete(e.pointerId);
+  if (wasDrag) {
+    game.onPointerUp(p.x, p.y);
+    dragId = null;
+  }
+  if (pointers.size < 2) pinching = false;
 };
 canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
+
+// Mouse wheel zoom (handy on desktop).
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    game.zoomAt(factor, e.clientX - rect.left, e.clientY - rect.top);
+  },
+  { passive: false },
+);
 
 // --- Fixed-timestep loop ---
 const STEP = 1 / 120; // physics step (s)

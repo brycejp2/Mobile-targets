@@ -44,6 +44,12 @@ export const CONFIG = {
     aimZoomPadding: 0.18,
     revealDuration: 1.1, // seconds to pan/zoom to the landing
     aimReturnDuration: 0.6,
+    // Intro: start a round showing the whole level, then zoom in to the dart.
+    introDuration: 1.3,
+    // User-zoom (buttons / pinch / wheel) scale clamps, screen px per world unit.
+    minScale: 0.03,
+    maxScale: 3,
+    zoomStep: 1.3, // per button press
   },
 
   // --- Scoring ---

@@ -13,7 +13,16 @@ import { Camera } from "../systems/camera";
 import { Vec2 } from "../util/math";
 import { Button, hitTest } from "./screens";
 
-type Tool = "target" | "wall" | "portal";
+type Tool = "target" | "wall" | "portal" | "erase";
+
+// Distance from a point to a segment, all in screen pixels.
+function segDistScreen(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
 
 function drawBtn(
   ctx: CanvasRenderingContext2D,
@@ -101,6 +110,7 @@ export class Workshop {
       { id: "target", label: "Target" },
       { id: "wall", label: "Wall" },
       { id: "portal", label: "Portal" },
+      { id: "erase", label: "Erase" },
       { id: "wind-", label: "Wind−" },
       { id: "wind+", label: "Wind+" },
       { id: "mode", label: "Mode" },
@@ -163,6 +173,10 @@ export class Workshop {
     if (aid) return this.onAction(aid);
 
     // Canvas interaction per active tool.
+    if (this.tool === "erase") {
+      this.removeNear(x, y);
+      return;
+    }
     const w = this.camera.screenToWorld({ x, y });
     if (this.tool === "target") {
       this.draft.target.pos = w;
@@ -208,7 +222,7 @@ export class Workshop {
   }
 
   private onTool(id: string): void {
-    if (id === "target" || id === "wall" || id === "portal") {
+    if (id === "target" || id === "wall" || id === "portal" || id === "erase") {
       this.tool = id;
       this.portalPending = null;
     } else if (id === "wind-") {
@@ -235,6 +249,43 @@ export class Workshop {
       this.showLoad = true;
     } else if (id === "menu") {
       this.onExit();
+    }
+  }
+
+  // Remove the wall or portal nearest a screen tap (whichever is closest and
+  // within a small pixel threshold).
+  private removeNear(sx: number, sy: number): void {
+    let wallIdx = -1;
+    let wallD = 20;
+    this.draft.walls.forEach((w, i) => {
+      const a = this.camera.worldToScreen(w.a);
+      const b = this.camera.worldToScreen(w.b);
+      const d = segDistScreen(sx, sy, a.x, a.y, b.x, b.y);
+      if (d < wallD) {
+        wallD = d;
+        wallIdx = i;
+      }
+    });
+
+    let portalIdx = -1;
+    let portalD = 26;
+    this.draft.portals.forEach((p, i) => {
+      for (const g of [p.a, p.b]) {
+        const s = this.camera.worldToScreen(g.pos);
+        const d = Math.hypot(sx - s.x, sy - s.y);
+        if (d < portalD) {
+          portalD = d;
+          portalIdx = i;
+        }
+      }
+    });
+
+    if (wallIdx >= 0 && (portalIdx < 0 || wallD <= portalD)) {
+      this.draft.walls.splice(wallIdx, 1);
+      this.setToast("Wall removed");
+    } else if (portalIdx >= 0) {
+      this.draft.portals.splice(portalIdx, 1);
+      this.setToast("Portal removed");
     }
   }
 
@@ -270,6 +321,14 @@ export class Workshop {
     this.loadButtons = btns;
   }
 
+  zoomAt(factor: number, x: number, y: number): void {
+    this.camera.zoomAt(factor, { x, y });
+  }
+
+  panBy(dx: number, dy: number): void {
+    this.camera.panScreen(dx, dy);
+  }
+
   update(dt: number): void {
     this.camera.update(dt);
     if (this.toastTime > 0) this.toastTime -= dt;
@@ -302,9 +361,11 @@ export class Workshop {
         ? "Tap to place the target"
         : this.tool === "wall"
           ? "Drag to draw a bounce wall"
-          : this.portalPending
-            ? "Tap to place the exit portal"
-            : "Tap to place the entry portal";
+          : this.tool === "erase"
+            ? "Tap a wall or portal to remove it"
+            : this.portalPending
+              ? "Tap to place the exit portal"
+              : "Tap to place the entry portal";
     ctx.fillText(hint, this.viewW / 2, 52);
     ctx.fillStyle = "rgba(143,183,255,0.9)";
     ctx.fillText(

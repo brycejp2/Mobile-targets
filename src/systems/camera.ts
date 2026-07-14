@@ -3,7 +3,7 @@
 // zoomed-out REVEAL view that fits the whole throw.
 
 import { CONFIG } from "../config";
-import { easeInOut, Vec2 } from "../util/math";
+import { clamp, easeInOut, Vec2 } from "../util/math";
 
 interface View {
   center: Vec2;
@@ -84,6 +84,24 @@ export class Camera {
     const scaleY = (this.viewH * usableFrac) / worldH;
     const scale = Math.max(0.02, Math.min(scaleX, scaleY));
     return { center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }, scale };
+  }
+
+  // Zoom by `factor` about a screen anchor (keeps the world point under the
+  // anchor fixed). Cancels any in-progress framing animation.
+  zoomAt(factor: number, anchor: Vec2): void {
+    const world = this.screenToWorld(anchor);
+    this.scale = clamp(this.scale * factor, CONFIG.camera.minScale, CONFIG.camera.maxScale);
+    this.center = {
+      x: world.x - (anchor.x - this.viewW / 2) / this.scale,
+      y: world.y + (anchor.y - this.viewH / 2) / this.scale,
+    };
+    this.t = 1;
+  }
+
+  // Pan by a screen-space delta (used for pinch drag).
+  panScreen(dx: number, dy: number): void {
+    this.center = { x: this.center.x - dx / this.scale, y: this.center.y + dy / this.scale };
+    this.t = 1;
   }
 
   setImmediate(v: View): void {
