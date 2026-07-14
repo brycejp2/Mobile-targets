@@ -33,8 +33,9 @@ export const CONFIG = {
     maxPullPx: 180,
     // Simple air drag applied to velocity each second (0 = none).
     airDrag: 0.02,
-    // Flight ends when the dart drops below this y (world units) or leaves bounds.
-    groundY: -80,
+    // The ground plane (world y). The dart launches from here and lands when it
+    // falls back to it; it's also drawn as a visible surface.
+    groundY: 0,
     maxFlightTime: 6, // safety cap in seconds
   },
 

@@ -342,6 +342,7 @@ export class Workshop {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, this.viewW, this.viewH);
 
+    this.drawGround(ctx);
     this.drawLaunch(ctx);
     this.drawWalls(ctx);
     this.drawPortals(ctx);
@@ -383,6 +384,25 @@ export class Workshop {
     }
 
     if (this.showLoad) this.drawLoad(ctx);
+  }
+
+  private drawGround(ctx: CanvasRenderingContext2D): void {
+    const top = this.camera.worldToScreen({ x: 0, y: CONFIG.physics.groundY }).y;
+    if (top >= this.viewH) return;
+    const y = Math.max(0, top);
+    const g = ctx.createLinearGradient(0, y, 0, this.viewH);
+    g.addColorStop(0, "#2f3d26");
+    g.addColorStop(1, "#18220f");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, y, this.viewW, this.viewH - y);
+    if (top >= 0) {
+      ctx.strokeStyle = "#5a8a3c";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, top);
+      ctx.lineTo(this.viewW, top);
+      ctx.stroke();
+    }
   }
 
   private drawLaunch(ctx: CanvasRenderingContext2D): void {

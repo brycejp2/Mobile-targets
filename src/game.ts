@@ -574,6 +574,7 @@ export class Game {
     }
 
     this.drawBackground(ctx);
+    this.drawGround(ctx);
     this.drawWalls(ctx);
     this.drawPortals(ctx);
     this.drawTarget(ctx);
@@ -660,6 +661,26 @@ export class Game {
     g.addColorStop(1, "#161d33");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, this.viewW, this.viewH);
+  }
+
+  // Visible ground plane at world y = groundY, drawn across every play mode.
+  private drawGround(ctx: CanvasRenderingContext2D): void {
+    const top = this.camera.worldToScreen({ x: this.camera.center.x, y: CONFIG.physics.groundY }).y;
+    if (top >= this.viewH) return; // ground entirely below the viewport
+    const y = Math.max(0, top);
+    const g = ctx.createLinearGradient(0, y, 0, this.viewH);
+    g.addColorStop(0, "#2f3d26");
+    g.addColorStop(1, "#18220f");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, y, this.viewW, this.viewH - y);
+    if (top >= 0) {
+      ctx.strokeStyle = "#5a8a3c";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, top);
+      ctx.lineTo(this.viewW, top);
+      ctx.stroke();
+    }
   }
 
   private drawWalls(ctx: CanvasRenderingContext2D): void {
