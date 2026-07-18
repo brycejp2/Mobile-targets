@@ -131,11 +131,16 @@ function frame(now: number): void {
   // Guard against huge jumps (tab switch); cap accumulated time.
   if (dt > 0.25) dt = 0.25;
   acc += dt;
-  while (acc >= STEP) {
-    game.update(STEP);
-    acc -= STEP;
+  try {
+    while (acc >= STEP) {
+      game.update(STEP);
+      acc -= STEP;
+    }
+    game.render(ctx, acc / STEP);
+  } catch (err) {
+    // Never let a transient error kill the loop.
+    console.error(err);
   }
-  game.render(ctx, acc / STEP);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

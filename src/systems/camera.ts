@@ -82,8 +82,14 @@ export class Camera {
     const usableFrac = 1 - 2 * paddingFrac;
     const scaleX = (this.viewW * usableFrac) / worldW;
     const scaleY = (this.viewH * usableFrac) / worldH;
-    const scale = Math.max(0.02, Math.min(scaleX, scaleY));
-    return { center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }, scale };
+    let scale = Math.max(0.02, Math.min(scaleX, scaleY));
+    let cx = (minX + maxX) / 2;
+    let cy = (minY + maxY) / 2;
+    // Defend against non-finite inputs (e.g. empty/NaN point sets).
+    if (!Number.isFinite(scale)) scale = 1;
+    if (!Number.isFinite(cx)) cx = 0;
+    if (!Number.isFinite(cy)) cy = 0;
+    return { center: { x: cx, y: cy }, scale };
   }
 
   // Zoom by `factor` about a screen anchor (keeps the world point under the

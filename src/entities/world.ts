@@ -18,11 +18,17 @@ export class World {
 
   load(level: LevelSpec): void {
     this.level = level;
-    this.target = new Target(level.target.pos, level.target.rings, level.target.motion);
+    this.target = new Target(
+      level.target.pos,
+      level.target.rings,
+      level.target.motion,
+      level.target.throwVel,
+    );
   }
 
-  update(time: number): void {
-    this.target.update(time);
+  // Advance target motion. Returns true if a thrown target just hit the ground.
+  advance(dt: number, time: number, gravity: number, groundY: number): boolean {
+    return this.target.advance(dt, time, gravity, groundY);
   }
 
   // Signed offset from the launch point to the (current) target, for HUD gauges.

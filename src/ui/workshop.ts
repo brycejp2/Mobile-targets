@@ -38,7 +38,7 @@ function drawBtn(
   ctx.strokeStyle = active ? accent : "rgba(255,255,255,0.25)";
   ctx.stroke();
   ctx.fillStyle = "#eaf2ff";
-  ctx.font = "600 14px system-ui, sans-serif";
+  ctx.font = "600 13px system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2);
@@ -111,6 +111,7 @@ export class Workshop {
       { id: "wall", label: "Wall" },
       { id: "portal", label: "Portal" },
       { id: "erase", label: "Erase" },
+      { id: "toss", label: "Toss" },
       { id: "wind-", label: "Wind−" },
       { id: "wind+", label: "Wind+" },
       { id: "mode", label: "Mode" },
@@ -225,6 +226,12 @@ export class Workshop {
     if (id === "target" || id === "wall" || id === "portal" || id === "erase") {
       this.tool = id;
       this.portalPending = null;
+    } else if (id === "toss") {
+      // Toggle the target between static and a thrown ("skeet") object.
+      this.draft.target.throwVel = this.draft.target.throwVel
+        ? undefined
+        : { x: -260, y: 1450 };
+      this.setToast(this.draft.target.throwVel ? "Target: thrown" : "Target: static");
     } else if (id === "wind-") {
       this.draft.wind.x = Math.max(-400, this.draft.wind.x - 40);
     } else if (id === "wind+") {
@@ -370,7 +377,7 @@ export class Workshop {
     ctx.fillText(hint, this.viewW / 2, 52);
     ctx.fillStyle = "rgba(143,183,255,0.9)";
     ctx.fillText(
-      `wind ${Math.round(this.draft.wind.x)}  ·  mode ${this.draft.mode}  ·  walls ${this.draft.walls.length}  ·  portals ${this.draft.portals.length}`,
+      `wind ${Math.round(this.draft.wind.x)}  ·  ${this.draft.target.throwVel ? "thrown" : this.draft.mode}  ·  walls ${this.draft.walls.length}  ·  portals ${this.draft.portals.length}`,
       this.viewW / 2,
       72,
     );

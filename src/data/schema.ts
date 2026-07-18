@@ -18,6 +18,9 @@ export interface TargetSpec {
   pos: Vec2; // base (center) position
   rings: number[]; // outermost -> innermost
   motion?: TargetMotion;
+  // If set, the target is a THROWN object: it launches from `pos` with this
+  // initial velocity and falls under gravity. Hit it before it lands or fail.
+  throwVel?: Vec2;
 }
 
 // A bounce/blocking surface: dart reflects about the segment normal, scaled by
@@ -77,9 +80,14 @@ export function generateLevel(index: number, rng: Rng): LevelSpec {
     wind = { x: sign * mag, y: rng.range(-0.15, 0.15) * mag };
   }
 
-  // Moving targets from level 4.
+  // Thrown ("skeet") targets from level 5, sometimes. These arc through the air
+  // and must be hit before they land.
+  let throwVel: Vec2 | undefined;
   let motion: TargetMotion | undefined;
-  if (index >= 4) {
+  if (index >= 5 && rng.next() < 0.25) {
+    throwVel = { x: rng.range(-320, -120), y: rng.range(1250, 1750) };
+  } else if (index >= 4) {
+    // Otherwise, bob/drift from level 4.
     motion = {
       axis: rng.next() < 0.5 ? "y" : "x",
       amplitude: Math.min(50 + index * 8, 220),
@@ -92,7 +100,7 @@ export function generateLevel(index: number, rng: Rng): LevelSpec {
     index,
     gravity: CONFIG.physics.gravity,
     wind,
-    target: { pos: { x: CONFIG.launch.x + xdist, y: CONFIG.launch.y + ydist }, rings, motion },
+    target: { pos: { x: CONFIG.launch.x + xdist, y: CONFIG.launch.y + ydist }, rings, motion, throwVel },
     walls: [],
     portals: [],
   };
@@ -163,6 +171,8 @@ export function validateLevel(raw: unknown): LevelSpec | null {
       };
     }
 
+    const throwVel = t.throwVel ? vec2(t.throwVel, 4000) ?? undefined : undefined;
+
     const walls = (Array.isArray(r.walls) ? r.walls : [])
       .map((w) => {
         const o = w as Record<string, unknown>;
@@ -197,7 +207,7 @@ export function validateLevel(raw: unknown): LevelSpec | null {
       index: num(r.index, 0, 9999, 1),
       gravity: num(r.gravity, 0, BOUNDS.gravity, CONFIG.physics.gravity),
       wind: vec2(r.wind, BOUNDS.wind) ?? { x: 0, y: 0 },
-      target: { pos, rings, motion },
+      target: { pos, rings, motion, throwVel },
       walls,
       portals,
       mode,

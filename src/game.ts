@@ -178,7 +178,7 @@ export class Game {
       this.world.load(generateLevel(this.levelIndex, this.rng));
     }
     this.beginRoundCommon("AIMING");
-    this.introAim();
+    this.frameRoundStart();
   }
 
   private startPredictRound(): void {
@@ -218,17 +218,40 @@ export class Game {
     return pts;
   }
 
-  // Start a round showing the whole level, then zoom in to the dart's start so
-  // the player gets a read on the layout before aiming.
-  private introAim(): void {
+  // Frame the round's opening. Blind levels: show the whole level, then zoom in
+  // to the dart. Thrown-target levels stay wide (static) so the player can track
+  // the airborne target and lead the shot.
+  private frameRoundStart(): void {
     if (this.viewW <= 0) return;
-    const wide = this.camera.fitView(
-      this.levelPoints(),
+    if (this.world.target.thrown) {
+      this.camera.setImmediate(this.thrownView());
+    } else {
+      const wide = this.camera.fitView(
+        this.levelPoints(),
+        CONFIG.camera.aimZoomPadding,
+        this.world.target.outerRadius,
+      );
+      this.camera.setImmediate(wide);
+      this.camera.animateTo(this.camera.aimView(this.world.launch), CONFIG.camera.introDuration);
+    }
+  }
+
+  // A static view that bounds a thrown target's whole arc (start, apex, landing)
+  // plus the launch point, so the entire skeet-shot is visible.
+  private thrownView() {
+    const g = Math.max(1, this.world.level.gravity); // avoid /0 for gravity-free levels
+    const groundY = CONFIG.physics.groundY;
+    const p0 = this.world.target.base;
+    const v = this.world.target.vel;
+    const tApex = Math.max(0, v.y / g);
+    const apex = { x: p0.x + v.x * tApex, y: p0.y + (v.y > 0 ? (v.y * v.y) / (2 * g) : 0) };
+    const tGround = (v.y + Math.sqrt(Math.max(0, v.y * v.y + 2 * g * (p0.y - groundY)))) / g;
+    const land = { x: p0.x + v.x * tGround, y: groundY };
+    return this.camera.fitView(
+      [this.world.launch, p0, apex, land],
       CONFIG.camera.aimZoomPadding,
       this.world.target.outerRadius,
     );
-    this.camera.setImmediate(wide);
-    this.camera.animateTo(this.camera.aimView(this.world.launch), CONFIG.camera.introDuration);
   }
 
   private framePredict(): void {
@@ -248,7 +271,7 @@ export class Game {
     this.levelIndex = spec.index;
     this.world.load(spec);
     this.beginRoundCommon("AIMING");
-    this.introAim();
+    this.frameRoundStart();
   }
 
   // --------------------------------------------------------------- Throwing --
@@ -264,12 +287,42 @@ export class Game {
     this.closestDist = Infinity;
     this.closestPos = { ...this.world.launch };
     this.collision.portalCooldown = 0;
-    const view = this.camera.fitView(
-      [this.world.launch, this.world.target.pos],
-      CONFIG.camera.aimZoomPadding,
-      this.world.target.outerRadius,
-    );
-    this.camera.animateTo(view, CONFIG.camera.revealDuration);
+    // Thrown-target rounds keep the static wide view (track the target); blind
+    // rounds zoom out to reveal the whole throw.
+    if (!this.world.target.thrown) {
+      const view = this.camera.fitView(
+        [this.world.launch, this.world.target.pos],
+        CONFIG.camera.aimZoomPadding,
+        this.world.target.outerRadius,
+      );
+      this.camera.animateTo(view, CONFIG.camera.revealDuration);
+    }
+  }
+
+  // Give the player another shot while a thrown target is still airborne.
+  private rearm(): void {
+    this.dart = new Dart(this.world.launch);
+    this.state = "AIMING";
+    this.input.end();
+  }
+
+  // The thrown target hit the ground unhit — the round is failed.
+  private failRound(): void {
+    this.dart.inFlight = false;
+    this.input.end();
+    this.impact = { ...this.world.target.pos };
+    this.scoring.record({ distance: Infinity, ringIndex: -1, ringScore: 0 }, this.world.target);
+    this.particles.burst(this.impact, "#6b7690", 16, 300);
+    this.lastResult = {
+      title: "IT GOT AWAY",
+      color: "#e5484d",
+      points: 0,
+      sub: "target hit the ground",
+      newBest: false,
+      hit: false,
+    };
+    if (this.mode === "daily") this.attemptsLeft -= 1;
+    this.enterReveal([this.impact]);
   }
 
   debugThrow(velocity: Vec2): void {
@@ -515,7 +568,7 @@ export class Game {
 
     if (this.state === "AIMING" || this.state === "IN_FLIGHT") {
       this.targetClock += simDt;
-      this.world.update(this.targetClock);
+      this.world.advance(simDt, this.targetClock, this.world.level.gravity, CONFIG.physics.groundY);
     }
 
     // Time-attack clock runs during active play.
@@ -543,7 +596,9 @@ export class Game {
         this.closestDist = d;
         this.closestPos = { ...this.dart.pos };
       }
-      const canEarlyOut = level.walls.length === 0 && level.portals.length === 0;
+      // Don't early-out on a moving target — the dart may still intercept it.
+      const canEarlyOut =
+        level.walls.length === 0 && level.portals.length === 0 && !target.thrown && !target.motion;
       const passedTarget = canEarlyOut && this.dart.pos.x >= target.pos.x && this.dart.vel.x >= 0;
       if (this.mode !== "predict" && d <= target.outerRadius) {
         this.dart.inFlight = false;
@@ -551,14 +606,28 @@ export class Game {
         this.finishThrow();
       } else if (passedTarget || landed) {
         this.dart.inFlight = false;
-        this.impact = { ...this.closestPos };
-        this.finishThrow();
+        // Missed a still-airborne thrown target -> take another shot.
+        if (target.thrown && !target.landed) {
+          this.rearm();
+        } else {
+          this.impact = { ...this.closestPos };
+          this.finishThrow();
+        }
       }
     } else if (this.state === "REVEAL") {
       if (!this.camera.settling && this.stateTime > 0.6) {
         this.state = "RESULT";
         this.stateTime = 0;
       }
+    }
+
+    // A thrown target that reached the ground unhit fails the round.
+    if (
+      (this.state === "AIMING" || this.state === "IN_FLIGHT") &&
+      this.world.target.thrown &&
+      this.world.target.landed
+    ) {
+      this.failRound();
     }
   }
 
@@ -593,7 +662,12 @@ export class Game {
       best: this.scoring.best,
       combo: this.scoring.combo,
       status: this.statusLine(),
-      message: this.state === "AIMING" ? "Drag anywhere to aim · release to throw" : undefined,
+      message:
+        this.state === "AIMING"
+          ? this.world.target.thrown
+            ? "Hit the falling target before it lands!"
+            : "Drag anywhere to aim · release to throw"
+          : undefined,
     });
 
     if (this.state === "AIMING" || this.state === "PREDICT") {
